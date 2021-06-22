@@ -1,0 +1,78 @@
+workflows:
+  native-android:
+    name: Native Android
+    instance_type: mac_pro
+    environment:
+      vars:
+        # Android Keystore environment variables
+        CM_KEYSTORE: Encrypted(...) # <-- Put your encrypted keystore file here
+        CM_KEYSTORE_PASSWORD: Encrypted(...) # <-- Put your encrypted keystore password here
+        CM_KEY_ALIAS_PASSWORD: Encrypted(...) # <-- Put your encrypted keystore alias password here
+        CM_KEY_ALIAS_USERNAME: Encrypted(...) # <-- Put your encrypted keystore alias username here
+      node: latest
+      xcode: 12.2
+    triggering:
+      events:
+        - push
+        - tag
+        - pull_request
+      branch_patterns:
+        - pattern: develop
+          include: true
+          source: true
+    scripts:
+      - name: AWS CLI configuration
+        script: |
+          mkdir ~/.aws
+          cat >> ~/.aws/config <<EOF
+          [default]
+          aws_access_key_id=$AWS_ACCESS_KEY_ID
+          aws_secret_access_key=$AWS_SECRET_ACCESS_KEY
+          region=$AWS_DEFAULT_REGION
+          output=json
+          EOF
+      - name: Set Android SDK location
+        script: |
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > "$FCI_BUILD_DIR/local.properties"
+      - name: Set up keystore
+        script: |
+          echo $CM_KEYSTORE | base64 --decode > /tmp/keystore.keystore
+          cat >> "$FCI_BUILD_DIR/key.properties" <<EOF
+          storePassword=$CM_KEYSTORE_PASSWORD
+          keyPassword=$CM_KEY_ALIAS_PASSWORD
+          keyAlias=$CM_KEY_ALIAS_USERNAME
+          storeFile=/tmp/keystore.keystore
+          EOF
+      - name: Build Android debug APK
+        script: |
+          ./gradlew assembleDebug
+      - name: Build Android test APK
+        script: |
+          ./gradlew assembleAndroidTest
+      - name: Run AWS Device Farm test
+        script: |
+          cd .scripts && ./run_aws_espresso.sh
+      - name: Verify Device Farm test
+        script: |
+          set -e
+          set -x
+          export AWS_RESULT=$(cat $FCI_BUILD_DIR/.scripts/test-result.json | jq -r '.run.result')
+          if [ $AWS_RESULT != "PASSED" ]
+          then
+            echo "AWS tests did not pass, the result was $AWS_RESULT"
+            exit 1
+          else
+            echo "AWS tests PASSED!"
+          fi
+      - name: Build Android production release
+        script: |
+          ./gradlew assembleRelease
+    artifacts:
+      - app/build/outputs/**/*.apk
+    publishing:
+      email:
+        recipients:
+          - nihal@nevercode.io
+        notify:
+          success: true
+          failure: false
