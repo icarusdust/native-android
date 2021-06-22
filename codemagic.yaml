@@ -1,7 +1,7 @@
 workflows:
   native-android:
     name: Native Android
-    instance_type: mac_pro
+    instance_type: linux_x2
     environment:
       vars:
         # Android Keystore environment variables
