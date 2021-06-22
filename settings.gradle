@@ -1,0 +1,2 @@
+rootProject.name = "NativeAndroidCodemagic"
+include ':app'
